@@ -1,7 +1,8 @@
 resolvers ++= Seq(
   "sbt-idea-repo" at "http://mpeltonen.github.com/maven/",
   Classpaths.typesafeResolver,
-  Resolver.url("sbt-plugin-releases", new URL("http://scalasbt.artifactoryonline.com/scalasbt/sbt-plugin-releases/"))(Resolver.ivyStylePatterns)
+  Resolver.url("sbt-plugin-releases", new URL("http://scalasbt.artifactoryonline.com/scalasbt/sbt-plugin-releases/"))(Resolver.ivyStylePatterns),
+  Resolver.url("bintray-sbt-plugins", url("http://dl.bintray.com/sbt/sbt-plugin-releases"))(Resolver.ivyStylePatterns)
 )
 
 //addSbtPlugin("com.jsuereth" % "xsbt-gpg-plugin" % "0.6")
