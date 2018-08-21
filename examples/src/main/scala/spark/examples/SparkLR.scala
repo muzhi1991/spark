@@ -14,6 +14,10 @@ object SparkLR {
 
   case class DataPoint(x: Vector, y: Double)
 
+  /**
+    * 生成了Array，每个ele是一个DataPoint，每个DataPoint含有（10纬特征，y）
+    * @return
+    */
   def generateData = {
     def generatePoint(i: Int) = {
       val y = if(i % 2 == 0) -1 else 1
