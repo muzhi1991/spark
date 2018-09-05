@@ -110,7 +110,7 @@ private trait DAGScheduler extends Scheduler with Logging {
       mapOutputTracker.registerShuffle(shuffleDep.get.shuffleId, rdd.splits.size)
     }
     val id = nextStageId.getAndIncrement()
-    val stage = new Stage(id, rdd, shuffleDep, getParentStages(rdd))
+    val stage = new Stage(id, rdd, shuffleDep, getParentStages(rdd)) // my:这里形成了链式的stage结构
     idToStage(id) = stage
     stage
   }
@@ -138,20 +138,20 @@ private trait DAGScheduler extends Scheduler with Logging {
     parents.toList
   }
 
-  def getMissingParentStages(stage: Stage): List[Stage] = {
+  def getMissingParentStages(stage: Stage): List[Stage] = { // my:核心函数：向上寻找没有执行的最近的parent-stage，注意逻辑忽略窄依赖，他不能构成stage
     val missing = new HashSet[Stage]
     val visited = new HashSet[RDD[_]]
     def visit(rdd: RDD[_]) {
       if (!visited(rdd)) {
         visited += rdd
-        val locs = getCacheLocs(rdd)
+        val locs = getCacheLocs(rdd) // my:update缓存，可能某些rdd的partition完成了缓存，需要更新snapshot
         for (p <- 0 until rdd.splits.size) {
-          if (locs(p) == Nil) {
+          if (locs(p) == Nil) { // my:注意：这里不是说明运算过的stage的最后task都会cache，而是判断缓存里如果cache了某个rdd就不用向前递归了。
             for (dep <- rdd.dependencies) {
               dep match {
                 case shufDep: ShuffleDependency[_,_,_] =>
                   val stage = getShuffleMapStage(shufDep)
-                  if (!stage.isAvailable) {
+                  if (!stage.isAvailable) { // my:核心逻辑，isAvailable函数判断了shuffle的stage是否已经完成了
                     missing += stage
                   }
                 case narrowDep: NarrowDependency[_] =>
@@ -166,7 +166,7 @@ private trait DAGScheduler extends Scheduler with Logging {
     missing.toList
   }
 
-  override def runJob[T, U](
+  override def runJob[T, U]( // my:核心的调度逻辑入口
       finalRdd: RDD[T],
       func: (TaskContext, Iterator[T]) => U,
       partitions: Seq[Int],
@@ -208,14 +208,14 @@ private trait DAGScheduler extends Scheduler with Logging {
       // Register the job ID so that we can get completion events for it
       eventQueues(runId) = new Queue[CompletionEvent]
   
-      def submitStage(stage: Stage) {
+      def submitStage(stage: Stage) { // my:核心函数：找出最开始的没有执行的stage并提交，其他stage放入waiting中等待执行
         if (!waiting(stage) && !running(stage)) {
-          val missing = getMissingParentStages(stage)
-          if (missing == Nil) {
+          val missing = getMissingParentStages(stage) // my:向上寻找没有执行的最近的parent-stage
+          if (missing == Nil) { // my:全都执行完了，执行本stage
             logInfo("Submitting " + stage + ", which has no missing parents")
             submitMissingTasks(stage)
             running += stage
-          } else {
+          } else { // my:存在没有执行的stage，继续向上递归寻找
             for (parent <- missing) {
               submitStage(parent)
             }
@@ -224,70 +224,70 @@ private trait DAGScheduler extends Scheduler with Logging {
         }
       }
   
-      def submitMissingTasks(stage: Stage) {
+      def submitMissingTasks(stage: Stage) { // my:提交某个stage的所有task（一个分区一个task）
         // Get our pending tasks and remember them in our pendingTasks entry
         val myPending = pendingTasks.getOrElseUpdate(stage, new HashSet)
         var tasks = ArrayBuffer[Task[_]]()
-        if (stage == finalStage) {
+        if (stage == finalStage) { // my:这里比较特殊，提交的job会为最后的stage特殊处理用ResultTask启动任务
           for (id <- 0 until numOutputParts if (!finished(id))) {
             val part = outputParts(id)
             val locs = getPreferredLocs(finalRdd, part)
             tasks += new ResultTask(runId, finalStage.id, finalRdd, func, part, locs, id)
           }
-        } else {
+        } else { // my:非最后stage都是ShuffleMapTask，原因很简单：只有shuffle才会是宽依赖生成stage
           for (p <- 0 until stage.numPartitions if stage.outputLocs(p) == Nil) {
             val locs = getPreferredLocs(stage.rdd, p)
             tasks += new ShuffleMapTask(runId, stage.id, stage.rdd, stage.shuffleDep.get, p, locs)
           }
         }
         myPending ++= tasks
-        submitTasks(tasks, runId)
+        submitTasks(tasks, runId) // my:实际提交task的函数！！
       }
   
-      submitStage(finalStage)
+      submitStage(finalStage) // my:开始执行
   
       while (numFinished != numOutputParts) {
-        val eventOption = waitForEvent(runId, POLL_TIMEOUT)
+        val eventOption = waitForEvent(runId, POLL_TIMEOUT) // my:挂起等待（用了wait+事件queue）
         val time = System.currentTimeMillis // TODO: use a pluggable clock for testability
   
         // If we got an event off the queue, mark the task done or react to a fetch failure
-        if (eventOption != None) {
+        if (eventOption != None) { // my:一般是非空，如果是none，表示wait超时了也没收到新消息，没关系，循环继续
           val evt = eventOption.get
           val stage = idToStage(evt.task.stageId)
           pendingTasks(stage) -= evt.task
-          if (evt.reason == Success) {
+          if (evt.reason == Success) { // my:返回的事件队列中的事件是执行成功了
             // A task ended
             logInfo("Completed " + evt.task)
-            Accumulators.add(evt.accumUpdates)
+            Accumulators.add(evt.accumUpdates) // my:累加器逻辑
             evt.task match {
-              case rt: ResultTask[_, _] =>
+              case rt: ResultTask[_, _] => // my:最终结果
                 results(rt.outputId) = evt.result.asInstanceOf[U]
                 finished(rt.outputId) = true
                 numFinished += 1
-              case smt: ShuffleMapTask =>
+              case smt: ShuffleMapTask => // my:shuffle结果
                 val stage = idToStage(smt.stageId)
-                stage.addOutputLoc(smt.partition, evt.result.asInstanceOf[String])
-                if (running.contains(stage) && pendingTasks(stage).isEmpty) {
+                stage.addOutputLoc(smt.partition, evt.result.asInstanceOf[String]) // my:记录某个shuffle task的结果（result是一个文件路径，会被后面的新提交的下游任务读取）
+                if (running.contains(stage) && pendingTasks(stage).isEmpty) { // my:pendingTasks(stage)表示某个stage的所有的task，那么stage完成。
                   logInfo(stage + " finished; looking for newly runnable stages")
                   running -= stage
-                  if (stage.shuffleDep != None) {
+                  if (stage.shuffleDep != None) { // my:应该是必然成立的
                     mapOutputTracker.registerMapOutputs(
                       stage.shuffleDep.get.shuffleId,
-                      stage.outputLocs.map(_.head).toArray)
+                      stage.outputLocs.map(_.head).toArray) // my:表示这个stage的shuffle完成（所有shuffle task完成）！！！，把所有输出登记到mapOutputTracker中
                   }
-                  updateCacheLocs()
+                  updateCacheLocs() // my:很重要，更新cache，下面的getMissingParentStages才会返回新结果。
                   val newlyRunnable = new ArrayBuffer[Stage]
-                  for (stage <- waiting if getMissingParentStages(stage) == Nil) {
+                  for (stage <- waiting if getMissingParentStages(stage) == Nil) { // my:重要逻辑，从waiting中拿出『新的下一个』且『父依赖都生成了的』stage，继续下个执行周期
                     newlyRunnable += stage
                   }
                   waiting --= newlyRunnable
                   running ++= newlyRunnable
                   for (stage <- newlyRunnable) {
-                    submitMissingTasks(stage)
+                    submitMissingTasks(stage) // my:开始执行下个stage
                   }
                 }
             }
-          } else {
+          } else { // my: 返回的事件队列中的事件是执行失败, 注意在localScheduler的情况下似乎有bug，他只有ExceptionFailure（虽然里面有FetchFailed）。local遇到fetch直接退出了
             evt.reason match {
               case FetchFailed(serverUri, shuffleId, mapId, reduceId) =>
                 // Mark the stage that the reducer was in as unrunnable
@@ -318,7 +318,7 @@ private trait DAGScheduler extends Scheduler with Logging {
   
         // If fetches have failed recently and we've waited for the right timeout,
         // resubmit all the failed stages
-        if (failed.size > 0 && time > lastFetchFailureTime + RESUBMIT_TIMEOUT) {
+        if (failed.size > 0 && time > lastFetchFailureTime + RESUBMIT_TIMEOUT) { // my:重试提交，这里要求间隔大于2s，注意这里无限次重试，只有没有fetch成功就不会跳出
           logInfo("Resubmitting failed stages")
           updateCacheLocs()
           for (stage <- failed) {
