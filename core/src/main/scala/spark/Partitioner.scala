@@ -29,14 +29,14 @@ class HashPartitioner(partitions: Int) extends Partitioner {
   }
 }
 
-class RangePartitioner[K <% Ordered[K]: ClassManifest, V](
+class RangePartitioner[K <% Ordered[K]: ClassManifest, V]( //my:基于范围的partitioner
     partitions: Int,
     @transient rdd: RDD[(K,V)],
     private val ascending: Boolean = true) 
   extends Partitioner {
 
   // An array of upper bounds for the first (partitions - 1) partitions
-  private val rangeBounds: Array[K] = {
+  private val rangeBounds: Array[K] = { // my:首先对数据的key采样分析，然后把key分成partitions份，把每个区的上界存在里面
     if (partitions == 1) {
       Array()
     } else {

@@ -15,7 +15,7 @@ class CoGroupSplit(idx: Int, val deps: Seq[CoGroupSplitDep]) extends Split with 
   override def hashCode(): Int = idx
 }
 
-class CoGroupAggregator
+class CoGroupAggregator // my:作为shuffle后的第一个RDD
   extends Aggregator[Any, Any, ArrayBuffer[Any]](
     { x => ArrayBuffer(x) },
     { (b, x) => b += x },
@@ -30,7 +30,7 @@ class CoGroupedRDD[K](rdds: Seq[RDD[(_, _)]], part: Partitioner)
   override val dependencies = {
     val deps = new ArrayBuffer[Dependency[_]]
     for ((rdd, index) <- rdds.zipWithIndex) {
-      if (rdd.partitioner == Some(part)) {
+      if (rdd.partitioner == Some(part)) {  // my:窄依赖某个rdd（有相同partitioner时）
         logInfo("Adding one-to-one dependency with " + rdd)
         deps += new OneToOneDependency(rdd)
       } else {
@@ -67,18 +67,18 @@ class CoGroupedRDD[K](rdds: Seq[RDD[(_, _)]], part: Partitioner)
   
   override def compute(s: Split): Iterator[(K, Seq[Seq[_]])] = {
     val split = s.asInstanceOf[CoGroupSplit]
-    val map = new HashMap[K, Seq[ArrayBuffer[Any]]]
+    val map = new HashMap[K, Seq[ArrayBuffer[Any]]] // my:shuffle缓存（纯内存）
     def getSeq(k: K): Seq[ArrayBuffer[Any]] = {
       map.getOrElseUpdate(k, Array.fill(rdds.size)(new ArrayBuffer[Any]))
     }
     for ((dep, depNum) <- split.deps.zipWithIndex) dep match {
-      case NarrowCoGroupSplitDep(rdd, itsSplit) => {
+      case NarrowCoGroupSplitDep(rdd, itsSplit) => { // my:窄依赖的情况
         // Read them from the parent
         for ((k, v) <- rdd.iterator(itsSplit)) {
           getSeq(k.asInstanceOf[K])(depNum) += v
         }
       }
-      case ShuffleCoGroupSplitDep(shuffleId) => {
+      case ShuffleCoGroupSplitDep(shuffleId) => { // my:宽依赖的情况
         // Read map outputs of shuffle
         def mergePair(k: K, vs: Seq[Any]) {
           val mySeq = getSeq(k)

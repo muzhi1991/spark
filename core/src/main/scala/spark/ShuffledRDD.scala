@@ -7,7 +7,7 @@ class ShuffledRDDSplit(val idx: Int) extends Split {
   override def hashCode(): Int = idx
 }
 
-class ShuffledRDD[K, V, C](
+class ShuffledRDD[K, V, C]( // my:作为shuffle后的第一个RDD
     parent: RDD[(K, V)],
     aggregator: Aggregator[K, V, C],
     part : Partitioner) 
@@ -32,13 +32,13 @@ class ShuffledRDD[K, V, C](
       if (oldC == null) {
         combiners.put(k, c)
       } else {
-        combiners.put(k, aggregator.mergeCombiners(oldC, c))
+        combiners.put(k, aggregator.mergeCombiners(oldC, c)) // my:这里只有C值，只用了mergeCombiners，因为这里本质上是shuffle之后获得了，V->C发生在之前ShuffleMapTask:createCombiner,mergeValue
       }
     }
     val fetcher = SparkEnv.get.shuffleFetcher
-    fetcher.fetch[K, C](dep.shuffleId, split.index, mergePair)
+    fetcher.fetch[K, C](dep.shuffleId, split.index, mergePair) // my:注意fetch的时候只有C值，传入了合并函数，结果在combiners里面
     return new Iterator[(K, C)] {
-      var iter = combiners.entrySet().iterator()
+      var iter = combiners.entrySet().iterator() // my:注意这里纯存储存储数据，如果c很大，如groupByKey的时候，内存可能爆了
 
       def hasNext(): Boolean = iter.hasNext()
 

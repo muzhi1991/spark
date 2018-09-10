@@ -42,7 +42,7 @@ class PairRDDFunctions[K: ClassManifest, V: ClassManifest](
   with HadoopMapReduceUtil
   with Serializable {
   
-  def reduceByKeyToDriver(func: (V, V) => V): Map[K, V] = {
+  def reduceByKeyToDriver(func: (V, V) => V): Map[K, V] = { // my: 这个是向driver返回一个值（map类型）与RDD的reduce类似，实际中不会使用，而是用reduceByKey，他是返回一个RDD，依然是分布式的
     def mergeMaps(m1: HashMap[K, V], m2: HashMap[K, V]): HashMap[K, V] = {
       for ((k, v) <- m2) {
         m1.get(k) match {
