@@ -105,8 +105,8 @@ class HadoopRDD[K, V](
 
   override def preferredLocations(split: Split) = {
     // TODO: Filtering out "localhost" in case of file:// URLs
-    val hadoopSplit = split.asInstanceOf[HadoopSplit]
-    hadoopSplit.inputSplit.value.getLocations.filter(_ != "localhost")
+    val hadoopSplit = split.asInstanceOf[HadoopSplit] // my:原理参考：https://blog.csdn.net/hsuxu/article/details/7673171,Split的Location其实是InputFormat期望这个Split被处理的Location，它完全可以跟实际Block的Location没有半点关系
+    hadoopSplit.inputSplit.value.getLocations.filter(_ != "localhost") // my:这里的localhost应该是driver本地，排除掉
   }
   
   override val dependencies: List[Dependency[_]] = Nil

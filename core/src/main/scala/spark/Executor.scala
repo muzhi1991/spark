@@ -89,8 +89,8 @@ class Executor extends org.apache.mesos.Executor with Logging {
             .build())
         logInfo("Finished task ID " + tid)
       } catch {
-        case ffe: FetchFailedException => {
-          val reason = ffe.toTaskEndReason
+        case ffe: FetchFailedException => { // my:这个异常是task.run中RDD的链式调用，调用到了fetcher，出现了获取数据的异常
+          val reason = ffe.toTaskEndReason // my:返回给了scheduler（master上）最终被DAGScheculer处理，这个异常会有重试处理
           d.sendStatusUpdate(TaskStatus.newBuilder()
               .setTaskId(info.getTaskId)
               .setState(TaskState.TASK_FAILED)
@@ -98,7 +98,7 @@ class Executor extends org.apache.mesos.Executor with Logging {
               .build())
         }
         case t: Throwable => {
-          val reason = ExceptionFailure(t)
+          val reason = ExceptionFailure(t) // my:这个异常传到shceduler(master)，会直接结束所有的task
           d.sendStatusUpdate(TaskStatus.newBuilder()
               .setTaskId(info.getTaskId)
               .setState(TaskState.TASK_FAILED)

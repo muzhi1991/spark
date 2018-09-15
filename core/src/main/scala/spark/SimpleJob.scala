@@ -13,7 +13,7 @@ import org.apache.mesos.Protos._
 /**
  * A Job that runs a set of tasks with no interdependencies.
  */
-class SimpleJob(
+class SimpleJob( // my:job的概念：从DAGScheduler可以看出批量提交了一组Tasks都是属于一个Stage里的，所有这里的job包含了一个Stage内的所有Tasks
     sched: MesosScheduler, 
     tasksSeq: Seq[Task[_]], 
     runId: Int,

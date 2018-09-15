@@ -214,7 +214,7 @@ private class MesosScheduler(
         do {
           launchedTask = false
           for (i <- 0 until offers.size if enoughMem(i)) {
-            job.slaveOffer(offers(i), availableCpus(i)) match {
+            job.slaveOffer(offers(i), availableCpus(i)) match { // my:某个job为每一个offer找到一个(仅找一个)匹配的task
               case Some(task) => 
                 tasks(i).add(task)
                 val tid = task.getTaskId.getValue
@@ -229,11 +229,11 @@ private class MesosScheduler(
               case None => {}
             }
           }
-        } while (launchedTask)
-      }
+        } while (launchedTask) // my:再重新为每一个offer找到一个匹配的task，一直到没有新的task启动为止。结果是每个offer都被分配了n个task，这些task
+      } // my: 为其他job执行相同的步骤
       val filters = Filters.newBuilder().setRefuseSeconds(1).build() // TODO: lower timeout?
-      for (i <- 0 until offers.size) {
-        d.launchTasks(offers(i).getId(), tasks(i), filters)
+      for (i <- 0 until offers.size) { // my:注意这里tasks(i)很可能是空数组，这是可以行的。在空task集合上调用launchTasks，会全部拒绝该资源
+        d.launchTasks(offers(i).getId(), tasks(i), filters) // my:launchTasks函数会：1.使用offer资源启动tasks(i)，2.剩下的unused资源会自动decline，3.被拒绝的资源被filter处理，这里会在RefuseSeconds后再被发给他
       }
     }
   }

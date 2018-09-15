@@ -25,7 +25,7 @@ class SimpleShuffleFetcher extends ShuffleFetcher with Logging {
         var tries = 0
         while (totalRecords == -1 || recordsProcessed < totalRecords) {
           tries += 1
-          if (tries > 4) {
+          if (tries > 4) { // my: 注意此时已经重试了4次，都获取数据失败，可以认为无法获取到上游数据，需要重新执行**上游所有任务**。
             // We've tried four times to get this data but we've had trouble; let's just declare
             // a failed fetch
             logError("Failed to fetch " + url + " four times; giving up")

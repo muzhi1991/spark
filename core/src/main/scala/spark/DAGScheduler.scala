@@ -125,9 +125,9 @@ private trait DAGScheduler extends Scheduler with Logging {
         // we can't do it in its constructor because # of splits is unknown
         cacheTracker.registerRDD(r.id, r.splits.size)
         for (dep <- r.dependencies) {
-          dep match {
+          dep match { // my:找出rdd中的shuffler依赖（宽依赖）
             case shufDep: ShuffleDependency[_,_,_] =>
-              parents += getShuffleMapStage(shufDep)
+              parents += getShuffleMapStage(shufDep) // my:构建了shuffleStage，注意他的结构包含了该Stage的最后一个RDD，和接着的Dependency
             case _ =>
               visit(dep.rdd)
           }
@@ -289,7 +289,7 @@ private trait DAGScheduler extends Scheduler with Logging {
             }
           } else { // my: 返回的事件队列中的事件是执行失败, 注意在localScheduler的情况下似乎有bug，他只有ExceptionFailure（虽然里面有FetchFailed）。local遇到fetch直接退出了
             evt.reason match {
-              case FetchFailed(serverUri, shuffleId, mapId, reduceId) =>
+              case FetchFailed(serverUri, shuffleId, mapId, reduceId) => // my:Eexcutor中出现了错误，一定注意这个ShuffleId是出错的那个下游RDD指向的上游ShuffleId
                 // Mark the stage that the reducer was in as unrunnable
                 val failedStage = idToStage(evt.task.stageId)
                 running -= failedStage
@@ -298,7 +298,7 @@ private trait DAGScheduler extends Scheduler with Logging {
                 logInfo("Marking " + failedStage + " for resubmision due to a fetch failure")
                 // Mark the map whose fetch failed as broken in the map stage
                 val mapStage = shuffleToMapStage(shuffleId)
-                mapStage.removeOutputLoc(mapId, serverUri)
+                mapStage.removeOutputLoc(mapId, serverUri) // my:一个重要的逻辑：失败后移除上游shuffle输出，导致submitStage后的stage.isAvailable不成立，使得**上游重算**
                 mapOutputTracker.unregisterMapOutput(shuffleId, mapId, serverUri)
                 logInfo("The failed fetch was from " + mapStage + "; marking it for resubmission")
                 failed += mapStage
